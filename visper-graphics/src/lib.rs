@@ -1,4 +1,6 @@
-pub fn bar() {}
+pub mod core;
+pub mod primitive;
+pub mod transformation;
 
 #[cfg(test)]
 mod tests {
