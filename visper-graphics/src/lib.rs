@@ -1,6 +1,7 @@
 pub mod core;
 pub mod primitive;
 pub mod transformation;
+pub mod renderer;
 
 #[cfg(test)]
 mod tests {

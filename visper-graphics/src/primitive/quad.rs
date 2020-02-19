@@ -1,5 +1,6 @@
 use std::mem::size_of;
 use crate::transformation::Transformation;
+use crate::core::rectangle::Rectangle;
 
 #[derive(Debug)]
 pub struct Pipeline {
@@ -8,7 +9,7 @@ pub struct Pipeline {
     constants_buffer: wgpu::Buffer,
     vertices: wgpu::Buffer,
     indices: wgpu::Buffer,
-    check: bool,
+    instances: wgpu::Buffer,
 }
 
 impl Pipeline {
@@ -30,12 +31,12 @@ impl Pipeline {
 
             let vertex_stage = wgpu::ProgrammableStageDescriptor {
                 module: &vs_module,
-                entry_point: "main"
+                entry_point: "main",
             };
 
             let fragment_stage = wgpu::ProgrammableStageDescriptor {
                 module: &fs_module,
-                entry_point: "main"
+                entry_point: "main",
             };
 
             (vertex_stage, Some(fragment_stage))
@@ -51,7 +52,43 @@ impl Pipeline {
                         format: wgpu::VertexFormat::Float2,
                         offset: 0,
                     }],
-                }
+                },
+                wgpu::VertexBufferDescriptor {
+                    stride: size_of::<Quad>() as u64,
+                    step_mode: wgpu::InputStepMode::Instance,
+                    attributes: &[
+                        wgpu::VertexAttributeDescriptor {
+                            shader_location: 1,
+                            format: wgpu::VertexFormat::Float2,
+                            offset: 0,
+                        },
+                        wgpu::VertexAttributeDescriptor {
+                            shader_location: 2,
+                            format: wgpu::VertexFormat::Float2,
+                            offset: 4 * 2,
+                        },
+                        wgpu::VertexAttributeDescriptor {
+                            shader_location: 3,
+                            format: wgpu::VertexFormat::Float4,
+                            offset: 4 * (2 + 2),
+                        },
+                        wgpu::VertexAttributeDescriptor {
+                            shader_location: 4,
+                            format: wgpu::VertexFormat::Float4,
+                            offset: 4 * (2 + 2 + 4),
+                        },
+                        wgpu::VertexAttributeDescriptor {
+                            shader_location: 5,
+                            format: wgpu::VertexFormat::Float,
+                            offset: 4 * (2 + 2 + 4 + 4),
+                        },
+                        wgpu::VertexAttributeDescriptor {
+                            shader_location: 6,
+                            format: wgpu::VertexFormat::Float,
+                            offset: 4 * (2 + 2 + 4 + 4 + 1),
+                        },
+                    ],
+                },
             ]
         };
 
@@ -91,9 +128,9 @@ impl Pipeline {
         };
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-           layout:  &layout,
-           vertex_stage,
-           fragment_stage,
+            layout: &layout,
+            vertex_stage,
+            fragment_stage,
             rasterization_state: Some(wgpu::RasterizationStateDescriptor {
                 front_face: wgpu::FrontFace::Cw,
                 cull_mode: wgpu::CullMode::None,
@@ -132,17 +169,30 @@ impl Pipeline {
             .create_buffer_mapped(QUAD_INDICES.len(), wgpu::BufferUsage::INDEX)
             .fill_from_slice(&QUAD_INDICES);
 
+        let instances = device.create_buffer(&wgpu::BufferDescriptor {
+            size: size_of::<Quad>() as u64 * Quad::MAX as u64,
+            usage: wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::COPY_DST,
+        });
+
         Pipeline {
             pipeline,
             constants: bind_group,
             constants_buffer,
             vertices,
             indices,
-            check: false,
+            instances,
         }
     }
 
-    pub fn draw(&mut self, device: &mut wgpu::Device, encoder: &mut wgpu::CommandEncoder, transformation: Transformation, scale: f32, target: &wgpu::TextureView) {
+    pub fn draw(&mut self,
+                device: &mut wgpu::Device,
+                encoder: &mut wgpu::CommandEncoder,
+                transformation: Transformation,
+                scale: f64,
+                bounds: Rectangle<u32>,
+                instances: &[Quad],
+                target: &wgpu::TextureView,
+    ) {
         let uniforms = Uniforms::new(transformation, scale);
         let constants_buffer = device
             .create_buffer_mapped(1, wgpu::BufferUsage::COPY_SRC)
@@ -154,6 +204,19 @@ impl Pipeline {
             &self.constants_buffer,
             0,
             std::mem::size_of::<Uniforms>() as u64,
+        );
+
+        let amount = 1;
+        let instance_buffer = device
+            .create_buffer_mapped(amount, wgpu::BufferUsage::COPY_SRC)
+            .fill_from_slice(&instances[0..amount]);
+
+        encoder.copy_buffer_to_buffer(
+            &instance_buffer,
+            0,
+            &self.instances,
+            0,
+            (size_of::<Quad>() * amount) as u64,
         );
 
         {
@@ -169,8 +232,14 @@ impl Pipeline {
             });
             rpass.set_pipeline(&self.pipeline);
             rpass.set_bind_group(0, &self.constants, &[]);
-            rpass.set_vertex_buffers(0, &[(&self.vertices, 0)]);
+            rpass.set_vertex_buffers(
+                0,
+                &[(&self.vertices, 0), (&self.instances, 0)]);
+//            rpass.set_vertex_buffers(
+//                0,
+//                &[(&self.vertices, 0)]);
             rpass.set_index_buffer(&self.indices, 0);
+//            rpass.set_scissor_rect(bounds.x, bounds.y, bounds.width, bounds.height);
             rpass.draw_indexed(
                 0..QUAD_INDICES.len() as u32,
                 0,
@@ -190,16 +259,16 @@ const QUAD_INDICES: [u16; 6] = [0, 1, 2, 0, 2, 3];
 
 const QUAD_VERTS: [Vertex; 4] = [
     Vertex {
+        _position: [0.0, 0.0],
+    },
+    Vertex {
+        _position: [1.0, 0.0],
+    },
+    Vertex {
         _position: [1.0, 1.0],
     },
     Vertex {
-        _position: [299.0, 1.0],
-    },
-    Vertex {
-        _position: [299.0, 299.0],
-    },
-    Vertex {
-        _position: [1.0, 299.0],
+        _position: [0.0, 1.0],
     },
 ];
 
@@ -217,6 +286,7 @@ pub struct Quad {
 impl Quad {
     const MAX: usize = 100_000;
 }
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 struct Uniforms {
@@ -225,10 +295,10 @@ struct Uniforms {
 }
 
 impl Uniforms {
-    fn new(transformation: Transformation, scale: f32) -> Uniforms {
+    fn new(transformation: Transformation, scale: f64) -> Uniforms {
         Self {
             transform: *transformation.as_ref(),
-            scale,
+            scale: scale as f32,
         }
     }
 }
@@ -241,6 +311,7 @@ impl Default for Uniforms {
         }
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,10 +332,10 @@ mod tests {
         });
 
         let p = Pipeline::new(&mut device);
-        assert_eq!(p.check, true);
     }
+
     #[test]
     fn foo() {
-        assert_eq!(1,1)
+        assert_eq!(1, 1)
     }
 }

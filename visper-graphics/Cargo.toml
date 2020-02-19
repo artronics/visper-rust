@@ -12,4 +12,7 @@ mockall = "0.6.0"
 
 [dependencies]
 wgpu = "0.4.0"
+#winit = { version = "0.20.0-alpha3", git = "https://github.com/hecrj/winit", rev = "709808eb4e69044705fcb214bcc30556db761405"}
 glam = "0.8.5"
+#winit = { version = "0.20.0-alpha3", git = "https://github.com/hecrj/winit", rev = "709808eb4e69044705fcb214bcc30556db761405"}
+winit = "0.20.0-alpha3"
